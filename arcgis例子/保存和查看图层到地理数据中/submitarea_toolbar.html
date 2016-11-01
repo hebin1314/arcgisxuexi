@@ -1,0 +1,327 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta name="viewport" content="initial-scale=1, maximum-scale=1,user-scalable=no">
+<title>地图选择地块</title>
+<!--引用样式-->
+   <link rel="stylesheet" href="http://localhost/3.18/dijit/themes/claro/claro.css">
+  <link rel="stylesheet" href="http://localhost/3.18/esri/css/esri.css">
+<!--样式设置，map控件样式，弹出窗样式以及标注样式-->
+<style>
+html, body, #mapDiv {
+	height: 100%;
+	margin: 0;
+	padding: 0;
+	width: 100%;
+}
+
+#info {
+	bottom: 20px;
+	color: #444;
+	height: auto;
+	font-family: arial;
+	left: 20px;
+	margin: 5px;
+	padding: 10px;
+	position: absolute;
+	text-align: left;
+	width: 400px;
+	z-index: 40;
+}
+
+.label {
+	display: inline-block;
+	width: 6em;
+}
+</style>
+<!--arcgis js api是基于dojo的，所以是要引入使用到的模块-->
+<script src="http://localhost/3.18/init.js"></script>
+<script>
+	var map, toolbar, addGraphic, inputfeatures,symbol,editToolbar;
+	var flag = true;
+	require([ "dojo/dom","dojo/on", "dojo/_base/lang", "dojo/json", "esri/config",
+					"esri/map", "esri/graphic", "esri/geometry/Geometry",
+					"esri/geometry/Extent", "esri/SpatialReference",
+					"esri/tasks/GeometryService",
+					"esri/tasks/AreasAndLengthsParameters",
+					"esri/toolbars/draw", "esri/symbols/SimpleFillSymbol",
+					"esri/symbols/SimpleLineSymbol", "esri/symbols/SimpleMarkerSymbol","dojo/parser",
+					"esri/tasks/FeatureSet", "esri/tasks/QueryTask",
+					"esri/tasks/query","esri/layers/FeatureLayer",
+					"esri/layers/ArcGISTiledMapServiceLayer" ,
+					"esri/geometry/Extent", "esri/Color","dijit/registry",
+					"esri/toolbars/edit", "dojo/dom-style", 
+					
+					"dijit/form/Button","dojo/domReady!"],
+			function(dom,on, lang, json, esriConfig, Map, Graphic, Geometry,
+					Extent, SpatialReference, GeometryService,
+					AreasAndLengthsParameters, Draw, SimpleFillSymbol,
+					SimpleLineSymbol,SimpleMarkerSymbol,parser,
+					FeatureSet, QueryTask, Query, FeatureLayer,
+					ArcGISTiledMapServiceLayer, Extent, Color,registry,Edit,domStyle) {
+				  parser.parse();
+
+				//基础地图服务URL
+				var baserMapURL = "http://server.arcgisonline.com/arcgis/rest/services/ESRI_Imagery_World_2D/MapServer";
+				
+		        //创建一个Map地图对象
+		      	 map = new Map("mapDiv", {
+					extent: new Extent(135.200, 73.890, 53.333,3.520),
+					zoom : 3
+				});
+
+		        //基础地图图层
+		        var basemaplayer = new ArcGISTiledMapServiceLayer(baserMapURL);
+		        map.addLayer(basemaplayer);
+		        <!-- getpro(); -->
+		        
+				//地图加载的时候，执行的函数：绘制地图，回执完成，执行getAreaAndLength函数来获取面积和长度；
+				map.on("load", createToolbar); 
+		// loop through all dijits, connect onClick event
+        // listeners for buttons to activate drawing tools
+			registry.forEach(function(d) {
+			  // d is a reference to a dijit
+			  // could be a layout container or a button
+			  if ( d.declaredClass === "dijit.form.Button" ) {
+				d.on("click", activateTool);
+			  }
+			});	
+
+			function activateTool() {
+				  var tool = this.label.toUpperCase().replace(/ /g, "_");
+				  toolbar.activate(Draw[tool]);
+			}
+		
+
+			function createToolbar(themap) {
+			  toolbar = new Draw(map);
+			  editToolbar = new Edit(map);
+			  toolbar.on("draw-end", getAreaAndLength);
+			}
+				
+				//几何服务调用的是公网中arcgis server中的几何服务，并定义变量；
+				var geometryService = new GeometryService("http://202.116.163.194:6080/arcgis/rest/services/Utilities/Geometry/GeometryServer");
+				geometryService.on("areas-and-lengths-complete",outputAreaAndLength);
+				//getAreaAndLength函数的定义：执行的地图是当前的地图，清楚之前的图形，然后绘制新的图形，新的图形的面积及长度参数来源于API中的对应接口；
+				//需要对绘制的几何图形进行简化；
+				function getAreaAndLength(evtObj) {
+					 var symbol;
+				  toolbar.deactivate();
+				  editToolbar.deactivate();
+				  map.showZoomSlider();
+				  var geometry = evtObj.geometry;
+				  map.graphics.clear();
+				  switch (geometry.type) {
+					case "point":
+					case "multipoint":
+					  symbol = new SimpleMarkerSymbol();
+					  break;
+					case "polyline":
+					  symbol = new SimpleLineSymbol();
+					  break;
+					default:
+					  symbol = new SimpleFillSymbol();
+					  break;
+				  }
+					addGraphic = new Graphic(geometry,new SimpleFillSymbol())
+					map.graphics.add(addGraphic);
+					 map.graphics.on("click", function(evt) {
+						//event.stop(evt);
+						activateToolbar(evt.graphic);
+					  });
+
+					//setup the parameters for the areas and lengths operation
+					//定义面积和长度的操作参数，面积的单位为公顷，长度的单位为英尺；
+					//面积计算的类型为geodesic；
+					var areasAndLengthParams = new AreasAndLengthsParameters();
+					areasAndLengthParams.lengthUnit = GeometryService.UNIT_METER;
+					areasAndLengthParams.areaUnit = GeometryService.UNIT_SQUARE_METERS;
+					areasAndLengthParams.calculationType = "geodesic";
+					geometryService.simplify([ geometry ], function(simplifiedGeometries) {
+						areasAndLengthParams.polygons = simplifiedGeometries;
+						geometryService.areasAndLengths(areasAndLengthParams);
+						dom.byId("longitude").innerHTML = geometry.rings[0][0][0];
+						dom.byId("latitude").innerHTML = geometry.rings[0][0][1];
+					});
+				}
+				function activateToolbar(graphic) {
+				  var tool = 0;
+				  
+				  if (registry.byId("tool_move").checked) {
+					tool = tool | Edit.MOVE; 
+				  }
+				  if (registry.byId("tool_vertices").checked) {
+					tool = tool | Edit.EDIT_VERTICES; 
+				  }
+				  if (registry.byId("tool_scale").checked) {
+					tool = tool | Edit.SCALE;
+					
+				  }
+				  if (registry.byId("tool_rotate").checked) {
+					tool = tool | Edit.ROTATE; 
+				  }
+				  // enable text editing if a graphic uses a text symbol
+				  if ( graphic.symbol.declaredClass === "esri.symbol.TextSymbol" ) {
+					tool = tool | Edit.EDIT_TEXT;
+				  }
+				 
+				  editToolbar.activate(tool, graphic);
+				  
+				}
+				
+				var result;
+				//定义函数outputAreaAndLength：定义函数的返回结果变量，通过json对返回的结果进行解析，读取DOM中的两个文本框，将结果给予对应的ID框，面积分别为公顷和英尺；
+				function outputAreaAndLength(evtObj) {
+					result = evtObj.result;
+					console.log(json.stringify(result));
+					dom.byId("area").innerHTML = result.areas[0].toFixed(3);
+					dom.byId("length").innerHTML = result.lengths[0].toFixed(3);
+				}
+				//绑定提交事件
+				var btn = dojo.byId("btn_submit");
+				dojo.connect(btn, "onclick", btnClick);
+				function btnClick() {
+					doSubmit();
+				}
+
+				//获取图层要素写入更新数据部分
+				function doSubmit() {
+					 var featureLayer = new FeatureLayer("http://202.116.163.194:6080/arcgis/rest/services/landuse/FeatureServer/0", {
+				          mode: FeatureLayer.MODE_ONDEMAND,
+				          outFields: ['*']
+				        });
+				
+				 //配置要素的属性信息
+				 addGraphic.attributes = {
+							"addarea"     : result.areas[0].toFixed(3),
+							"length"   : result.lengths[0].toFixed(3)
+						};
+				//将绘制的地块更新到在线服务中
+				featureLayer.applyEdits([addGraphic],null,null,null,null);
+						
+				map.addLayers([featureLayer]);
+				 
+				alert("保存成功，点击确定关闭该页面！");
+				window.close();
+				}
+			});
+			
+	
+</script>
+</head>
+<body>
+
+	<div id="mapDiv"></div>
+	<div id="info" class="esriSimpleSlider">
+		请在地图上画出您的地块
+		
+      <div id="tool_move" style="display:none" data-dojo-type="dijit/form/ToggleButton" data-dojo-props="checked:'true', iconClass:'dijitCheckBoxIcon'">Move</div>
+      <div id="tool_vertices" style="display:none"  data-dojo-type="dijit/form/ToggleButton" data-dojo-props="checked:'true', iconClass:'dijitCheckBoxIcon'">Edit Vertices</div>
+      <div id="tool_scale" style="display:none"  data-dojo-type="dijit/form/ToggleButton" data-dojo-props="checked:'true', iconClass:'dijitCheckBoxIcon'">Scale</div>
+      <div id="tool_rotate" style="display:none"  data-dojo-type="dijit/form/ToggleButton" data-dojo-props="checked:'true', iconClass:'dijitCheckBoxIcon'">Rotate</div>
+      <br>
+	  <button data-dojo-type="dijit/form/Button">Point</button>
+      <button data-dojo-type="dijit/form/Button">Multi Point</button>
+      <button data-dojo-type="dijit/form/Button">Line</button>
+      <button data-dojo-type="dijit/form/Button">Polyline</button>
+      <button data-dojo-type="dijit/form/Button">Polygon</button>
+      <button data-dojo-type="dijit/form/Button">Freehand Polyline</button>
+      <button data-dojo-type="dijit/form/Button">Freehand Polygon</button>
+      <button data-dojo-type="dijit/form/Button">Arrow</button>
+      <button data-dojo-type="dijit/form/Button">Triangle</button>
+      <button data-dojo-type="dijit/form/Button">Circle</button>
+      <button data-dojo-type="dijit/form/Button">Ellipse</button>
+	  
+			<table>
+				<tr>
+					<td>
+						<span class="label">面积:</span>
+					</td>
+					<td>
+						<span id="area"></span>(平方米)
+					</td>
+				</tr>
+				<tr>
+					<td>
+						<span class="label">长度:</span>
+					</td>
+					<td>
+						<span id="length"></span>(米)
+					</td>
+				</tr>
+				<tr>
+					<td>
+						<span class="label">经度:</span>
+					</td>
+					<td>
+						<span id="longitude"></span>
+					</td>
+				</tr>
+				<tr>
+					<td>
+						<span class="label">纬度:</span>
+					</td>
+					<td>
+						<span id="latitude"></span>
+					</td>
+				</tr>
+				<tr>
+					<td>
+						<span class="label">省市区:</span>
+					</td>
+					<td>
+						<span id="procc"></span>
+					</td>
+				</tr>
+				<tr>
+					<td>
+						<span class="label">详细地址:</span>
+					</td>
+					<td>
+						<span id="addr"></span>
+					</td>
+				</tr>
+				<tr>
+					<td>
+						<span class="label">备注:</span>
+					</td>
+					<td>
+						<span id="remark"></span>
+					</td>
+				</tr>
+				<tr>
+					<td></td>
+					<td></td>
+				</tr>
+				<tr>
+				<td></td>
+					<td align="center" >
+						<button id="btn_submit" >提交</button>
+					</td>
+				</tr>
+			</table>
+	</div>
+	
+	<script type="text/javascript">
+		function getpro() {
+			var id = $("#hidgroundid").val();
+			$.ajax({url : "${pageContext.request.contextPath}/grd/groundfindOne.action",
+						data : {
+							groundid : id,
+						},
+						type : "post",
+						dataType : "json",
+						success : function(data) {
+						   $("#addr").text(data.obj["addr"]);
+							$("#procc").text(data.obj["province"] + data.obj["city"] + data.obj["district"]);
+							$("#remark").text(data.obj["remark"]);
+						}
+					});
+		}
+			
+	</script>
+</body>
+</html>
+
+

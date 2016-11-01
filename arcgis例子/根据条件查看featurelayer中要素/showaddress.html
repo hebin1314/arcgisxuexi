@@ -1,0 +1,192 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta name="viewport" content="initial-scale=1, maximum-scale=1,user-scalable=no">
+<title>查看所有地块</title>
+<!--引用样式-->
+<link rel="stylesheet" href="http://localhost/3.18/dijit/themes/claro/claro.css">
+
+<link rel="stylesheet" href="http://localhost/3.18/esri/css/esri.css">
+
+<!--样式设置，map控件样式，弹出窗样式以及标注样式-->
+<style>
+html, body, #mapDiv {
+	height: 100%;
+	margin: 0;
+	padding: 0;
+	width: 100%;
+}
+
+#info {
+	bottom: 20px;
+	color: #444;
+	height: auto;
+	font-family: arial;
+	left: 20px;
+	margin: 5px;
+	padding: 10px;
+	position: absolute;
+	text-align: left;
+	width: 400px;
+	z-index: 40;
+}
+
+.label {
+	display: inline-block;
+	width: 6em;
+}
+</style>
+<!--arcgis js api是基于dojo的，所以是要引入使用到的模块-->
+<script src="http://localhost/3.18/init.js"></script>
+
+<script>
+	var map, dom;
+	require(
+			[ "dojo/dom", "dojo/on", "dojo/_base/lang", "dojo/json",
+					"esri/config", "esri/map", "esri/graphic",
+					"esri/geometry/Geometry", 
+					 "esri/symbols/SimpleFillSymbol",
+					"esri/symbols/SimpleLineSymbol", 
+					"esri/tasks/FeatureSet", "esri/tasks/QueryTask",
+					"esri/tasks/query", "esri/layers/FeatureLayer",
+					"esri/layers/ArcGISTiledMapServiceLayer",
+					"esri/geometry/Extent", 
+					"esri/tasks/StatisticDefinition",
+					"esri/InfoTemplate","esri/Color",
+					"esri/renderers/SimpleRenderer",
+					
+					"dojo/domReady!" ],
+			function(dom, on, lang, json, esriConfig, Map, Graphic, Geometry,
+					
+					SimpleFillSymbol,
+					SimpleLineSymbol,  FeatureSet, QueryTask, Query,
+					FeatureLayer, ArcGISTiledMapServiceLayer, Extent, 
+					StatisticDefinition, InfoTemplate,Color,SimpleRenderer
+			) {
+
+		//基础地图服务URL
+		var baserMapURL = "http://server.arcgisonline.com/arcgis/rest/services/ESRI_Imagery_World_2D/MapServer";
+				
+		//查询服务URL
+		var queryURL = "http://202.116.163.194:6080/arcgis/rest/services/landuse/FeatureServer/0";
+				
+         //创建一个Map地图对象
+		 map = new Map("mapDiv", {
+			extent: new Extent(135.200, 73.890, 53.333,3.520),
+			zoom : 3
+		});
+		
+		//基础地图图层
+		var basemaplayer = new ArcGISTiledMapServiceLayer(baserMapURL);
+		map.addLayer(basemaplayer);
+		getfarmerid();
+		
+		/**
+			 * 执行属性查询
+			 */
+			function doQuery(keyword) {	
+				var queryTask = new QueryTask(queryURL);
+				var query = new Query();
+				query.where = keyword;
+				query.outSpatialReference = map.spatialReference; //输出为基础地图坐标 
+				query.returnGeometry = false;  //返回几何图形
+				query.outFields = ["*"];	//*表示返回所有的字段
+				queryTask.execute(query, queryResultHandler,queryFaultHandler);  //开始执行查询，异步的模式
+			}
+			
+			//查询结果面符号
+				 var sfs = new SimpleFillSymbol(SimpleFillSymbol.STYLE_SOLID,
+						   new SimpleLineSymbol(SimpleLineSymbol.STYLE_SOLID,
+						   new Color("red"),2),new Color([197,100,225,0.5]));
+						   
+						   	var renderer = new SimpleRenderer(sfs);
+			//返回结果出来处理
+			function queryResultHandler(featureSet){
+				map.graphics.clear();
+				console.log("featureSet="+featureSet.features.length);
+				var totalarea = 0;
+				for (var i = 0; i < featureSet.features.length; i++) {
+					var feature = featureSet.features[i]; //要素
+					var attributes = feature.attributes;  //属性
+					feature.setSymbol = sfs;
+					map.graphics.add(feature);
+					totalarea += attributes.addarea;
+				}
+				dom.byId("totalarea").innerHTML = totalarea;
+			}
+			
+			//查询异常处理
+			function queryFaultHandler(evt){
+				console.log("event=" + evt);
+			}
+			//监听地图在加载完成之后
+			map.on("load", afterMapLoadHandler);
+
+			function afterMapLoadHandler(){
+				getfarmerid();
+				var hfarmerid = dom.byId("hidfarmerid").value;
+				var keyword = "farmerid="+hfarmerid;
+				doQuery(keyword);
+			}
+		
+		var infoTemplate = new InfoTemplate();
+        infoTemplate.setTitle("<b>地块信息</b>");
+        infoTemplate.setContent("面积：${addarea}  <br> 长度：${length} <br>省市区： ${pcd} <br> 详细地址：${addr} <br> 备注：${remark} ");
+		
+	
+
+ 
+		
+		
+		var url = "http://202.116.163.194:6080/arcgis/rest/services/landuse/FeatureServer/0";
+		var featureLayerOptions = {
+			mode: FeatureLayer.MODE_ONDEMAND,
+			outFields: ["*"],
+			infoTemplate: infoTemplate,
+			visible:true
+		};
+		
+        var featureLayer = new FeatureLayer(url, featureLayerOptions);
+		
+		 featureLayer.setRenderer(renderer);
+		
+		///设置featureLayer的查询条件
+		var hfarmerid = dom.byId("hidfarmerid").value;
+		///不可以直接写"farmerid =hfarmerid " 
+		featureLayer.setDefinitionExpression("farmerid = " + hfarmerid);
+		//add a layer to the map
+        map.addLayer(featureLayer);
+		
+	});
+    </script>
+	<script type="text/javascript">
+		///获取传递过来的url，从中截取farmerid
+		//////http://localhost:8080/zbuav/pcpage/yaogan/showaddress.html?farmerid=58
+		function getfarmerid(){
+			var sHref = document.URL;
+			var arg = sHref.split("=");
+			var farmerid = arg[1];
+			document.getElementById("hidfarmerid").value = farmerid;
+			//alert(farmerid);
+		}
+		
+	</script>
+  </head>
+  
+  <body>
+		<div id="mapDiv"></div>
+		<input type="hidden" id="hidfarmerid"  />
+		<div id="info" class="esriSimpleSlider">
+	您的地块总面积为：
+				<tr>
+					<td>
+						<span id="totalarea"></span>(平方米)
+					</td>
+				</tr>
+			
+	</div>
+  </body>
+</html>
+
+

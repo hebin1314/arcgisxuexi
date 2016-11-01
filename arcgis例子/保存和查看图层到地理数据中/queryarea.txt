@@ -1,0 +1,234 @@
+<%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8"%>
+<%
+	String groundid = request.getParameter("groundid");
+	String farmerid = request.getParameter("farmerid");
+%>
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta name="viewport" content="initial-scale=1, maximum-scale=1,user-scalable=no">
+<title>查看所有地块</title>
+<!--引用样式-->
+<link rel="stylesheet" href="https://js.arcgis.com/3.18/dijit/themes/claro/claro.css">
+
+<link rel="stylesheet" href="https://js.arcgis.com/3.18/esri/css/esri.css">
+<script type="text/javascript" src="${pageContext.request.contextPath}/pcpage/js/jquery-1.11.1.min.js" charset="utf-8"></script>
+<!--样式设置，map控件样式，弹出窗样式以及标注样式-->
+<style>
+html, body, #mapDiv {
+	height: 100%;
+	margin: 0;
+	padding: 0;
+	width: 100%;
+}
+
+#info {
+	bottom: 20px;
+	color: #444;
+	height: auto;
+	font-family: arial;
+	left: 20px;
+	margin: 5px;
+	padding: 10px;
+	position: absolute;
+	text-align: left;
+	width: 400px;
+	z-index: 40;
+}
+
+.label {
+	display: inline-block;
+	width: 6em;
+}
+</style>
+<!--arcgis js api是基于dojo的，所以是要引入使用到的模块-->
+<script src="https://js.arcgis.com/3.18/"></script>
+<script>
+	var map, tb, addGraphic, inputfeatures;
+	require(["dojo/dom","dojo/on", "dojo/_base/lang", "dojo/json", "esri/config",
+					"esri/map", "esri/graphic", "esri/geometry/Geometry",
+					"esri/geometry/Extent", "esri/SpatialReference",
+					"esri/tasks/GeometryService",
+					"esri/tasks/AreasAndLengthsParameters",
+					"esri/toolbars/draw", "esri/symbols/SimpleFillSymbol",
+					"esri/symbols/SimpleLineSymbol","dojo/parser",
+					"esri/tasks/FeatureSet", "esri/tasks/QueryTask",
+					"esri/tasks/query","esri/layers/FeatureLayer",
+					"esri/layers/ArcGISTiledMapServiceLayer" ,
+					"esri/geometry/Extent", "esri/Color", "dojo/domReady!"],
+			function(dom,on, lang, json, esriConfig, Map, Graphic, Geometry,
+					Extent, SpatialReference, GeometryService,
+					AreasAndLengthsParameters, Draw, SimpleFillSymbol,
+					SimpleLineSymbol,parser,
+					FeatureSet, QueryTask, Query, FeatureLayer,
+					ArcGISTiledMapServiceLayer, Extent, Color) {
+				
+				  parser.parse();
+
+				//identify proxy page to use if the toJson payload to the geometry service is greater than 2000 characters.
+				//If this null or not available the project and lengths operation will not work.  Otherwise it will do a http post to the proxy.
+				esriConfig.defaults.io.proxyUrl = "/proxy/";
+				esriConfig.defaults.io.alwaysUseProxy = false;
+
+				//基础地图服务URL
+				var baserMapURL = "http://server.arcgisonline.com/arcgis/rest/services/ESRI_Imagery_World_2D/MapServer";
+				
+				//查询服务URL
+				var queryURL = "http://202.116.163.194:6080/arcgis/rest/services/landuse/FeatureServer/0";
+				
+		        //创建一个Map地图对象
+		      	 map = new Map("mapDiv", {
+					extent: new Extent(135.200, 73.890, 53.333,3.520),
+					zoom : 3
+				});
+
+		        //基础地图图层
+		        var basemaplayer = new ArcGISTiledMapServiceLayer(baserMapURL);
+		        map.addLayer(basemaplayer);
+		        getpro();
+		        
+		    	/**
+				 * 执行属性查询
+				 */
+				function doQuery(keyword) {	
+					var queryTask = new QueryTask(queryURL);
+					var query = new Query();
+					query.where = keyword;
+					query.outSpatialReference = map.spatialReference; //输出为基础地图坐标 
+					query.returnGeometry = true;  //返回几何图形
+					query.outFields = ["*"];	//*表示返回所有的字段
+					queryTask.execute(query, queryResultHandler,queryFaultHandler);  //开始执行查询，异步的模式
+				}
+				
+				//查询结果面符号
+				 var sfs = new SimpleFillSymbol(SimpleFillSymbol.STYLE_SOLID,
+						   new SimpleLineSymbol(SimpleLineSymbol.STYLE_DASHDOT,
+						   new Color([255,0,0]), 2),new Color([255,255,0,0.25])
+						   );
+
+				//返回结果出来处理
+				function queryResultHandler(featureSet){
+					map.graphics.clear();
+					console.log("featureSet="+featureSet.features.length);
+					for (var i = 0; i < featureSet.features.length; i++) {
+						var feature = featureSet.features[i]; //要素
+						var attributes = feature.attributes;  //属性
+						dom.byId("longitude").innerHTML = feature.geometry.rings[0][0][0].toFixed(3);
+						dom.byId("latitude").innerHTML = feature.geometry.rings[0][0][1].toFixed(3);
+						dom.byId("area").innerHTML = attributes.addarea;
+						dom.byId("length").innerHTML = attributes.length;
+						feature.symbol = sfs;
+						map.graphics.add(feature);
+						var extent = feature.geometry.getExtent();
+						map.setExtent(extent);
+					}
+				}
+				
+				//查询异常处理
+				function queryFaultHandler(evt){
+					console.log("event=" + evt);
+				}
+				//监听地图在加载完成之后
+				map.on("load", afterMapLoadHandler);
+
+				function afterMapLoadHandler(){
+					var keyword = "farmerid=<%=farmerid%> and groundid=<%=groundid%>";
+					doQuery(keyword);
+				}
+			});
+</script>
+
+
+</head>
+<body>
+	<div id="mapDiv"></div>
+	<div id="info" class="esriSimpleSlider">
+		您的地块信息
+		<br>
+		<br>
+		<input type="hidden" id="hidfarmerid" value="<%=farmerid%>" /><input type="hidden" id="hidfarmerid" value="<%=farmerid%>" />
+		<input type="hidden" id="hidgroundid" value="<%=groundid%>" />
+		<table>
+			<tr>
+					<td>
+						<span class="label">面积:</span>
+					</td>
+					<td>
+						<span id="area"></span>(平方米)
+					</td>
+				</tr>
+				<tr>
+					<td>
+						<span class="label">长度:</span>
+					</td>
+					<td>
+						<span id="length"></span>(米)
+					</td>
+				</tr>
+				<tr>
+					<td>
+						<span class="label">经度:</span>
+					</td>
+					<td>
+						<span id="longitude"></span>
+					</td>
+				</tr>
+				<tr>
+					<td>
+						<span class="label">纬度:</span>
+					</td>
+					<td>
+						<span id="latitude"></span>
+					</td>
+				</tr>
+				<tr>
+					<td>
+						<span class="label">省市区:</span>
+					</td>
+					<td>
+						<span id="procc"></span>
+					</td>
+				</tr>
+				<tr>
+					<td>
+						<span class="label">详细地址:</span>
+					</td>
+					<td>
+						<span id="addr"></span>
+					</td>
+				</tr>
+				<tr>
+					<td>
+						<span class="label">备注:</span>
+					</td>
+					<td>
+						<span id="remark"></span>
+					</td>
+				</tr>
+
+
+		</table>
+
+	</div>
+		<script type="text/javascript">
+		function getpro() {
+			var id = $("#hidgroundid").val();
+			$.ajax({url : "${pageContext.request.contextPath}/grd/groundfindOne.action",
+						data : {
+							groundid : id,
+						},
+						type : "post",
+						dataType : "json",
+						success : function(data) {
+						   $("#addr").text(data.obj["addr"]);
+							$("#procc").text(data.obj["province"] + data.obj["city"] + data.obj["district"]);
+							$("#remark").text(data.obj["remark"]);
+						}
+					});
+		}
+	</script>
+</body>
+</html>
+
+
